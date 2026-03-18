@@ -15,7 +15,14 @@ public class ResourceServerSecurityConfiguration {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/v1/health", "/error").permitAll()
+                        .requestMatchers(
+                                "/api/v1/health",
+                                "/actuator/health",
+                                "/actuator/health/**",
+                                "/livez",
+                                "/readyz",
+                                "/error"
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
