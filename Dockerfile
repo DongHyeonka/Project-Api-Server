@@ -18,11 +18,12 @@ RUN chmod +x gradlew
 RUN --mount=type=cache,target=/root/.gradle \
     ./gradlew --no-daemon :bootstrap:dependencies > /dev/null
 
+RUN mkdir -p common/src/main common/src/test \
+    domain/src/main domain/src/test \
+    infrastructure/src/main infrastructure/src/test
+
 COPY bootstrap/src bootstrap/src
 COPY application/src application/src
-COPY common/src common/src
-COPY domain/src domain/src
-COPY infrastructure/src infrastructure/src
 COPY presentation/src presentation/src
 
 RUN --mount=type=cache,target=/root/.gradle \
