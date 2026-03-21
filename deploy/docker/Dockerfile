@@ -9,7 +9,6 @@ COPY gradle gradle
 COPY settings.gradle build.gradle gradle.properties ./
 COPY bootstrap/build.gradle bootstrap/build.gradle
 COPY application/build.gradle application/build.gradle
-COPY common/build.gradle common/build.gradle
 COPY domain/build.gradle domain/build.gradle
 COPY infrastructure/build.gradle infrastructure/build.gradle
 COPY presentation/build.gradle presentation/build.gradle
@@ -18,8 +17,7 @@ RUN chmod +x gradlew
 RUN --mount=type=cache,target=/root/.gradle \
     ./gradlew --no-daemon :bootstrap:dependencies > /dev/null
 
-RUN mkdir -p common/src/main common/src/test \
-    domain/src/main domain/src/test \
+RUN mkdir -p domain/src/main domain/src/test \
     infrastructure/src/main infrastructure/src/test
 
 COPY bootstrap/src bootstrap/src

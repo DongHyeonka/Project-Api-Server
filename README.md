@@ -1,21 +1,91 @@
 # Project-Api-Server
-Health Check를 할 수 있는 단순한 API를 관리하는 서버입니다.
 
-## 이미지 빌드
+Health check와 resource server 역할을 담당하는 API 서버입니다. 이 저장소는 **애플리케이션 소스 코드와 로컬 개발 환경**을 중심으로 유지합니다. Kubernetes, Argo CD, 환경별 운영 선언은 `Project-Auth-GitOps`에서 관리합니다.
 
-루트의 [Dockerfile](/home/donghyeon/dev/Project-Api-Server/Dockerfile)로 `api-server` 이미지를 빌드할 수 있습니다.
+## 아키텍처 정리
 
-현재 Dockerfile은 다음 기준으로 구성했습니다.
+### 변경 전 구조
 
-1. Gradle `bootJar` 멀티스테이지 빌드
-2. Spring Boot layered jar 추출
-3. non-root 사용자 실행
-4. `/actuator/health` 기반 Docker healthcheck
+```mermaid
+flowchart TD
+  Root["project-api-server/"]
+  Root --> Bootstrap["bootstrap/"]
+  Root --> Domain["domain/"]
+  Root --> Application["application/"]
+  Root --> Presentation["presentation/"]
+  Root --> Infrastructure["infrastructure/"]
+  Root --> Common["common/"]
+  Root --> K8s["k8s/"]
+  Root --> Argo["argocd/"]
+  Root --> Dockerfile["Dockerfile"]
+```
 
-로컬 빌드:
+### 변경 전 문제점
+
+- 앱 소스와 운영 배포 자산이 같은 저장소에 섞여 있었습니다.
+- `common` 모듈이 비어 있는데도 구조상 남아 있어 오히려 경계를 흐릴 수 있었습니다.
+- GitOps repo가 이미 존재하는데도 앱 repo에 운영 선언이 중복돼 source of truth가 흔들릴 수 있었습니다.
+
+### 변경 후 구조
+
+```mermaid
+flowchart TD
+  Root["project-api-server/"]
+  Root --> Bootstrap["bootstrap/"]
+  Root --> Domain["domain/"]
+  Root --> Application["application/"]
+  Root --> Presentation["presentation/"]
+  Root --> Infrastructure["infrastructure/"]
+  Root --> Docs["docs/"]
+  Root --> Deploy["deploy/docker"]
+  Root --> Examples["examples/legacy/"]
+  Root --> Build["build files"]
+```
+
+### 어떤 점이 완화되었는가
+
+- 앱 repo는 코드와 로컬 개발 자산에 집중하고, 운영 선언은 GitOps repo로 분리했습니다.
+- 비어 있던 `common` 모듈을 제거해 모호한 계층을 없앴습니다.
+- ArchUnit 테스트로 계층 규칙을 실제 테스트로 검증하게 했습니다.
+
+## 현재 폴더 구조
+
+```text
+project-api-server/
+├─ bootstrap/
+├─ domain/
+├─ application/
+├─ presentation/
+├─ infrastructure/
+├─ docs/
+│  ├─ architecture/
+│  ├─ development/
+│  ├─ operations/
+│  └─ security/
+├─ deploy/
+│  ├─ docker/
+│  └─ scripts/
+├─ examples/
+│  └─ legacy/
+└─ build files
+```
+
+## 레이어 규칙
+
+- `domain`은 Spring, JPA, Controller를 모릅니다.
+- `application`은 유스케이스와 포트만 담당합니다.
+- `presentation`은 HTTP 입출력만 담당합니다.
+- `infrastructure`는 기술 구현체만 담당합니다.
+- `bootstrap`이 전부 조립합니다.
+
+이 규칙은 `bootstrap/src/test/java/com/project/api/architecture/LayerDependencyArchitectureTest.java`에서 ArchUnit으로 검증합니다.
+
+## 로컬 개발 환경
+
+이미지 빌드는 `deploy/docker/Dockerfile`을 사용합니다.
 
 ```bash
-docker build -t project-api-server:local .
+docker build -f deploy/docker/Dockerfile -t project-api-server:local .
 ```
 
 로컬 실행:
@@ -27,56 +97,13 @@ docker run --rm -p 8082:8082 \
   project-api-server:local
 ```
 
-환경별 차이는 이미지를 나누지 않고 런타임 환경 변수로 분리하는 것을 기준으로 합니다.
+## CI 역할
 
-Actuator health 경로:
+이 저장소의 CI는:
 
-- `/actuator/health`
-- `/actuator/health/liveness`
-- `/actuator/health/readiness`
-- `/livez`
-- `/readyz`
+- `./gradlew test`
+- GHCR 이미지 빌드/푸시
 
-## Dev CI/CD
+까지만 담당합니다.
 
-이 저장소는 [`.github/workflows/dev-ci-cd.yml`](/home/donghyeon/dev/Project-Api-Server/.github/workflows/dev-ci-cd.yml) 기준으로 dev CI/CD를 구성합니다.
-
-- Pull Request to `develop`
-  - `./gradlew test`
-- Push to `develop`
-  - `./gradlew test`
-  - `ghcr.io/<owner>/project-api-server:dev`
-  - `ghcr.io/<owner>/project-api-server:<short-sha>`
-    두 태그로 이미지 빌드/푸시
-  - `k8s/dev/kustomization.yaml`의 `newTag`를 `<short-sha>`로 갱신
-  - 같은 `develop` 브랜치에 manifest 변경 반영
-  - Argo CD가 이를 감지해 sync
-
-현재 dev 배포 선언은 아래 파일로 관리합니다.
-
-- Kustomize: [k8s/dev/kustomization.yaml](/home/donghyeon/dev/Project-Api-Server/k8s/dev/kustomization.yaml)
-- Argo CD AppProject: [argocd/api-dev-project.yaml](/home/donghyeon/dev/Project-Api-Server/argocd/api-dev-project.yaml)
-- Argo CD Application: [argocd/dev-api-server-application.yaml](/home/donghyeon/dev/Project-Api-Server/argocd/dev-api-server-application.yaml)
-
-현재 dev 구성은 민감값 없이 `ConfigMap`만으로 실행되도록 잡았습니다. 따라서 auth-server와 달리 별도 app secret은 아직 필요하지 않습니다.
-
-dev namespace에서 먼저 필요한 secret은 GHCR pull secret입니다.
-
-```bash
-kubectl create secret docker-registry ghcr-regcred \
-  --namespace api-dev \
-  --docker-server=ghcr.io \
-  --docker-username=<github-username> \
-  --docker-password=<github-pat-or-ghcr-token>
-```
-
-Argo CD는 클러스터에 별도 설치해야 합니다. 이 저장소는 Argo CD가 읽을 `AppProject`와 `Application` 선언을 함께 관리합니다.
-적용 순서는 보통 `AppProject -> Application` 순서로 가져갑니다.
-
-현재 dev namespace는 Pod Security Admission 기준으로 아래 라벨을 사용합니다.
-
-- `enforce=baseline`
-- `warn=restricted`
-- `audit=restricted`
-
-Deployment는 이에 맞춰 `runAsNonRoot`, `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `startupProbe`, `livenessProbe`, `readinessProbe`를 포함합니다.
+운영 CD는 `Project-Auth-GitOps`에서 manifest/tag 변경을 통해 Argo CD가 수행합니다.
